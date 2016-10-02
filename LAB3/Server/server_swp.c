@@ -104,18 +104,31 @@ typedef File_not_found FNF;
 typedef File_info_and_data FID;
 typedef File_request FR;
 
+#define FR_CONST   2
+#define ACK_CONST  2
+#define FID_CONST  10
+#define DATA_CONST 5
+#define FNF_CONST  2
+
+int payload;
 char* serialize(void* p ) {   //TODO : Implement serialization for all types
     char * ser ;
     switch(getType(p)) {
-      case 0:
-        ser = malloc(sizeof(p) + ((FR*)p)->filename_size);
-        ser[0] = ((FR*)p)->type;
-        ser[1] = ((FR*)p)->filename_size;
-        strcpy(ser + 2 , ((FR*)p)->filename);
+      case 0:{        
+        FR* fr  = (FR*) p;
+        int length = FR_CONST + fr->filename_size ;
+        ser = malloc(length);
+        ser[0] = fr->type;
+        ser[1] = fr->filename_size;
+        strcpy(ser + 2 , fr->filename);
+        // ser[length - 1] = '\0';
+        payload = length;
         return ser;
-        default:
+      }
+        default: {
         printf("Undefined \n");
         return NULL;
+      }
     }
     return NULL;
 }
@@ -224,11 +237,10 @@ int getType(void* ptr) {
 
     }
     */
-    File_request* fr = malloc(sizeof(File_request) + 3);
+    File_request* fr = malloc(sizeof(File_request));
     fr->filename_size = 3;
     fr->filename = "a.t";
-    // printf("sizeof struct before = %d \n", strlen(fr->filename));
-    fr->type = 1;          
+    fr->type = 0;          
     char* ser = serialize(fr );
     int i;
     for(i=0;i<5;i++){
@@ -237,7 +249,7 @@ int getType(void* ptr) {
     //strcpy(fr->filename , str);
     printf("After copy = %s \n", fr->filename);    
     // printf("sizeof struct after = %d \n", sizeof(File_request));
-    sendto(s, fr, sizeof(File_request) + 3, 0,(struct sockaddr *)&client_addr, client_addr_len);    
+    sendto(s, ser , payload , 0,(struct sockaddr *)&client_addr, client_addr_len);    
 		//fputs(buffer , stdout);
     printf("Data sent \n");
     // free(buffer);

@@ -83,11 +83,27 @@ typedef File_request FR;
 int getType(void* ptr) {
     return ((FR*) ptr)->type;
 }
-/*
+
 void* deserialize(char* data) { //TODO : Implement deserialization for all types
 
+    switch(data[0]) {
+      case 0:
+      {
+        File_request* fr = malloc(sizeof(File_request));
+        fr->type = parseByte(data);
+        fr->filename_size = parseByte(data + 1);
+        fr->filename = data + 2;
+        return (void*) fr;
+      }
+        default :
+        {
+        printf("Undefined\n"); 
+        return NULL;
+        }
+    }
+    return NULL;
 }
-*/
+
   int main(int argc, char * argv[]){
 
     FILE *fp;
@@ -167,22 +183,29 @@ void* deserialize(char* data) { //TODO : Implement deserialization for all types
     */
     char * FILE_NAME = "a.txt";
   //FILE* fptr = fopen(FILE_NAME , "wb");
-    int size = 40000;
-    char * buffer = (char*) malloc(size);
-    File_request* fr = malloc(sizeof(File_request));
+    int size = 100;
+    /*char * buffer = (char*) malloc(size);*/
+    
     int total = 0;
     int flag = 0;
     struct timeval start , end;
     gettimeofday(&start , NULL); 
   // while(1){  	
-
+    char buffer[size];
     memset(buffer, 0, size);   
-    int length = recv(s , fr , sizeof(File_request) + 3 , 0);
+    int length = recv(s , buffer , size , 0);
+    printf("sizeof buffer %d\n" , sizeof(buffer)); 
+    FR* fr = (FR*) deserialize(buffer);
     printf("Recv len = %d \n", length);
     printf("Type = %d \n", fr->type);
     printf("filename_size = %d \n", fr->filename_size);
-    printf("str size = %d\n", strlen(fr->filename));
-    printf("File name = %s \n", fr->filename);
+    // printf("from buffer %c %c %c \n", buffer[2] , buffer[3] , buffer[4]);
+    char filename[fr->filename_size];
+    strcpy(filename , fr->filename);
+    printf("str size = %d\n", strlen(filename));
+    printf("File name = %s \n", filename);
+
+
     total += length;
 
     // printf("Inside while recv len %d \n" , length);

@@ -1,0 +1,6 @@
+My first String
+My second
+My third
+My fourth
+My last
+*

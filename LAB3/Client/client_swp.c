@@ -20,7 +20,7 @@
 #define FID_CONST  10
 #define DATA_CONST 5
 #define FNF_CONST  2
-#define udp_buf 35000
+#define udp_buf 45000
 
    typedef struct {
     uint8_t type;

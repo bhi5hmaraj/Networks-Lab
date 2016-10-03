@@ -14,7 +14,7 @@
 #include <poll.h>
 #define SERVER_PORT 5432
 #define BUF_SIZE 4096
-#define udp_buf 30000
+#define udp_buf 40000
 #define FR_CONST   2   
 #define ACK_CONST  2
 #define FID_CONST  10
@@ -352,13 +352,13 @@ if(fptr != NULL) {
   int curr = 0;
   while(runs--) {
     sendto(s, ser, payload, 0,(struct sockaddr *)&client_addr, client_addr_len);  
-    usleep(10000);
+    usleep(1000);
     while(1) {
-      res = poll(&fd, 1, 1000); // 1000 ms timeout
+      res = poll(&fd, 1, 750); // 1000 ms timeout
       if(res == 0) {
         printf("Timeout\n");
         sendto(s, ser, payload, 0,(struct sockaddr *)&client_addr, client_addr_len);  
-        usleep(10000);
+        usleep(1000);
       }
       else if(res < 0) {
         printf("Error in poll\n");

@@ -11,11 +11,15 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <unistd.h>
-
+#include <poll.h>
 #define SERVER_PORT 5432
 #define BUF_SIZE 4096
-#define udp_buf 40000
-
+#define udp_buf 30000
+#define FR_CONST   2   
+#define ACK_CONST  2
+#define FID_CONST  10
+#define DATA_CONST 5
+#define FNF_CONST  2
    FILE* fptr;
    int remain;
    char buffer[udp_buf];
@@ -25,38 +29,46 @@
     return bite;
   }
   uint16_t parseShort(char* data) {
-    uint16_t shot = 0;
-    shot |= data[0];
-    shot <<= 8;
-    shot |= data[1];
+    uint16_t shot = 0;    
+    shot |= ((uint8_t)(data[0]));
+    shot <<= 8;    
+    shot |= ((uint8_t)(data[1]));            
     return shot;
   }
   
   uint32_t parseInt(char* data) {
     uint32_t Int = 0;
-    Int |= data[0];
+    Int |= ((uint8_t)data[0]);
     Int <<= 8;
-    Int |= data[1];
+    Int |= ((uint8_t)data[1]);
     Int <<= 8;
-    Int |= data[2];
+    Int |= ((uint8_t)data[2]);
     Int <<= 8;
-    Int |= data[3];
+    Int |= ((uint8_t)data[3]);
     return Int;
   }
   char* shortToString(uint16_t num) {
-    uint16_t mask = 0xF;
+    uint16_t mask = 0xFF;
     char* str = malloc(2);
+    // printf("inside shortToString mask = %d \n" , mask);
+    // printf("num = %d\n", num);
     str[0] = (num >> 8) & mask;
     str[1] = num & mask;
+    // printf("str[0] = %d str[1] = %d\n", str[0] , str[1]);
+    fflush(stdout);
     return str; 
   }
-  char* intToString(uint16_t num) {
-    uint32_t mask = 0xF;
+  char* intToString(uint32_t num) {
+    uint32_t mask = 0xFF;
     char* str = malloc(4);
+    // printf("num = %d\n", num);
     str[0] = (num >> 24) & mask;
     str[1] = (num >> 16) & mask;
     str[2] = (num >> 8) & mask;
-    str[4] = num & mask;
+    str[3] = num & mask;
+    /*int i = 0;
+    for(i=0;i<4;i++)
+      printf("i = %d , str[i] = %d \n", i , str[i]);*/
     return str; 
   }
 
@@ -105,11 +117,12 @@
   typedef File_request FR;
 
 // Size of the non-variable fields
-#define FR_CONST   2   
-#define ACK_CONST  2
-#define FID_CONST  10
-#define DATA_CONST 5
-#define FNF_CONST  2
+
+  void stringCopy(char* dest , char* src , int length) {
+    int i = 0;
+    for(;i<length;i++)
+      dest[i] = src[i];
+  }
 
   int payload;
   void* deserialize(char* data) { //TODO : Implement deserialization for all types
@@ -129,7 +142,7 @@
         a->sequence_no = malloc(2 * a->num_sequences);
         int i;
         for(i=0;i<(a->num_sequences);i++)
-          a->sequence_number[i] = parseShort(data + 2 + (2*i));
+          a->sequence_no[i] = parseShort(data + 2 + (2*i));
         return (void*)a;
       }
       case 2 : {
@@ -171,10 +184,10 @@ char* serialize(void* p ) {   //TODO : Implement serialization for all types
     case 0:{        
       FR* fr  = (FR*) p;
       payload = FR_CONST + fr->filename_size ;
-      ser = malloc(length);
+      ser = malloc(payload);
       ser[0] = fr->type;
       ser[1] = fr->filename_size;
-      strcpy(ser + 2 , fr->filename);      
+      memcpy(ser + 2 , fr->filename , ser[1]);      
       return ser;
     }
     case 1: {
@@ -185,20 +198,22 @@ char* serialize(void* p ) {   //TODO : Implement serialization for all types
       ser[1] = a->num_sequences;
       int i;
       for(i=0;i<(a->num_sequences);i++)
-        strcpy((ser + 2 + (2*i)) , shortToString(a->sequence_no[i]));
+        memcpy((ser + 2 + (2*i)) , shortToString(a->sequence_no[i]) , 2);
       return ser;
     }
     case 2: {
       FID* fid = (FID*) p;
+      //printf("Inside serialization filename_size = %d block_size = %d file_size = %d \n", fid->filename_size , fid->block_size , fid->file_size);
       payload = FID_CONST + fid->filename_size + fid->block_size;
       ser = malloc(payload);
       ser[0] = fid->type;
-      strcpy(ser + 1 , shortToString(fid->sequence_number));
+      memcpy(ser + 1 , shortToString(fid->sequence_number) , 2);
       ser[3] = fid->filename_size;
-      strcpy(ser + 4 , fid->filename);
-      strcpy(ser + 4 + fid->filename_size , intToString(fid->file_size));
-      strcpy(ser + 8 + fid->filename_size , shortToString(fid->block_size));
-      strcpy(ser + 10 + fid->filename_size , fid->data);
+      int f_size = ser[3];
+      memcpy(ser + 4 , fid->filename , f_size);
+      memcpy(ser + 4 + f_size , intToString(fid->file_size) , 4);
+      memcpy(ser + 8 + f_size , shortToString(fid->block_size) ,2);
+      memcpy(ser + 10 + f_size , fid->data , fid->block_size);
       return ser;
     }
     case 3: {
@@ -206,9 +221,9 @@ char* serialize(void* p ) {   //TODO : Implement serialization for all types
       payload = DATA_CONST + d->block_size;
       ser = malloc(payload);
       ser[0] = d->type;
-      strcpy(ser + 1 , shortToString(d->sequence_number));
-      strcpy(ser + 3 , shortToString(d->block_size));
-      strcpy(ser + 5 , d->data);
+      memcpy(ser + 1 , shortToString(d->sequence_number) , 2);
+      memcpy(ser + 3 , shortToString(d->block_size) , 2);
+      memcpy(ser + 5 , d->data , d->block_size);
       return ser;
     }
     case 4 : {
@@ -217,7 +232,7 @@ char* serialize(void* p ) {   //TODO : Implement serialization for all types
       ser = malloc(payload);
       ser[0] = fnf->type;
       ser[1] = fnf->filename_size;
-      strcpy(ser + 2 , fnf->filename);
+      memcpy(ser + 2 , fnf->filename , fnf->filename_size);
       return ser;
     }
     default: {
@@ -297,17 +312,17 @@ client_addr_len = sizeof(client_addr);
 
   /* Receive messages from clients*/
 while(len = recvfrom(s, buf, sizeof(buf), 0,
- (struct sockaddr *)&client_addr, &client_addr_len)){
+ (struct sockaddr *)&client_addr, &client_addr_len)) {
 
   inet_ntop(client_addr.ss_family,
    &(((struct sockaddr_in *)&client_addr)->sin_addr),
    clientIP, INET_ADDRSTRLEN);
 
 FR* fr = (FR*) deserialize(buf);
-printf("Server got message from %s for File : %s \n", clientIP , fr->filename);
-
-fptr = fopen(fr->filename , "rb");    	
-if(fptr) {
+printf("Server got message from %s for File : %s", clientIP , fr->filename);
+fflush(stdout);
+fptr = fopen(fr->filename, "rb");    	
+if(fptr != NULL) {
   fseek(fptr, 0, SEEK_END);
   int length = ftell(fptr);        
   fseek(fptr, 0, SEEK_SET);
@@ -315,7 +330,8 @@ if(fptr) {
   printf("Size of file = %d \n" , length);
   fflush(stdout);  
   int runs = (length / udp_buf) + (length % udp_buf == 0 ? 0 : 1);
-  int consume_len = nextBuffer();
+  int consume_len = nextBuffer();  
+  printf("consume_len = %d\n", consume_len);
   char* ser;
   FID* fid = malloc(sizeof(FID));
   fid->type = 2;
@@ -326,17 +342,24 @@ if(fptr) {
   fid->block_size = consume_len;
   fid->data = buffer;
   ser = serialize(fid);  
-  int curr = fid->sequence_number;
+  //printf("ser[3] = %d ser[4] = %d \n", ser[3] , ser[4]);
+  int i = 0;
+  printf("payload = %d \n", payload);
+  struct pollfd fd;
+  int res;
+  fd.fd = s;
+  fd.events = POLLIN;
+  int curr = 0;
   while(runs--) {
     sendto(s, ser, payload, 0,(struct sockaddr *)&client_addr, client_addr_len);  
+    usleep(10000);
     while(1) {
-      struct pollfd fd;
-      int res;
-      fd.fd = s;
-      fd.events = POLLIN;
-      res = poll(&fd, 1, 500); // 1000 ms timeout
-      if(res == 0) 
+      res = poll(&fd, 1, 1000); // 1000 ms timeout
+      if(res == 0) {
+        printf("Timeout\n");
         sendto(s, ser, payload, 0,(struct sockaddr *)&client_addr, client_addr_len);  
+        usleep(10000);
+      }
       else if(res < 0) {
         printf("Error in poll\n");
         exit(1);
@@ -346,32 +369,39 @@ if(fptr) {
         recvfrom(s, recv_buf, 4, 0,(struct sockaddr *)&client_addr, &client_addr_len);
         ACK* a = (ACK*) deserialize(recv_buf);
         if(a->sequence_no[0] == curr) {
+          printf("ACK received for curr = %d \n", curr);
           curr++;
           break;
         }
       }
+      fflush(stdout);
     }
     if(runs == 0)
       break;
     consume_len = nextBuffer();
+    printf("consume_len = %d \n", consume_len);
     Data* d = malloc(sizeof(Data));
     d->type = 3;
     d->sequence_number = curr;
     d->block_size = consume_len;
     d->data = buffer;
-    ser = serialize(d);    
+    ser = serialize(d);  
+    // printf("ser[3] = %d ser[4] = %d \n", ser[3] , ser[4]);  
   }
+  fclose(fptr);
   printf("Data sent \n");
 }
 else { // Implement ACK for fnf also
+  printf("File not found in the server\n");
+  fflush(stdout);
   buf[0] = 4;
-  sendto(s, buffer, len, 0,(struct sockaddr *)&client_addr, client_addr_len);    
+  sendto(s, buf, len, 0,(struct sockaddr *)&client_addr, client_addr_len);    
 }
     // free(buffer);
-  fclose(fptr);
+strcpy(buf, "BYE");
+sendto(s, buf, 4, 0, 
+  (struct sockaddr*)&client_addr, client_addr_len);
+memset(buf, 0, sizeof(buf));
 }
-   strcpy(buf, "BYE");
-   sendto(s, buf, 4, 0, 
-    (struct sockaddr*)&client_addr, client_addr_len);
-    memset(buf, 0, sizeof(buf));
+
 }  

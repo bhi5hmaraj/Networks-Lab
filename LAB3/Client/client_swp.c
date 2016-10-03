@@ -17,7 +17,7 @@
 #define BUF_SIZE 4096
 
 
-  typedef struct {
+   typedef struct {
     uint8_t type;
     uint8_t filename_size;
     char* filename;
@@ -76,33 +76,137 @@
     return Int;
   }
 
-typedef File_not_found FNF;
-typedef File_info_and_data FID;
-typedef File_request FR;
+  typedef File_not_found FNF;
+  typedef File_info_and_data FID;
+  typedef File_request FR;
 
-int getType(void* ptr) {
+  int getType(void* ptr) {
     return ((FR*) ptr)->type;
-}
+  }
 
-void* deserialize(char* data) { //TODO : Implement deserialization for all types
+  char* serialize(void* p ) {   
+    char * ser ;
+    switch(getType(p)) {
+      case 0:{        
+        FR* fr  = (FR*) p;
+        payload = FR_CONST + fr->filename_size ;
+        ser = malloc(length);
+        ser[0] = fr->type;
+        ser[1] = fr->filename_size;
+        strcpy(ser + 2 , fr->filename);      
+        return ser;
+      }
+      case 1: {
+        ACK* a = (ACK*) p;
+        payload = ACK_CONST + (2 * a->num_sequences);
+        ser = malloc(payload);
+        ser[0] = a->type;
+        ser[1] = a->num_sequences;
+        int i;
+        for(i=0;i<(a->num_sequences);i++)
+          strcpy((ser + 2 + (2*i)) , shortToString(a->sequence_no[i]));
+        return ser;
+      }
+      case 2: {
+        FID* fid = (FID*) p;
+        payload = FID_CONST + fid->filename_size + fid->block_size;
+        ser = malloc(payload);
+        ser[0] = fid->type;
+        strcpy(ser + 1 , shortToString(fid->sequence_number));
+        ser[3] = fid->filename_size;
+        strcpy(ser + 4 , fid->filename);
+        strcpy(ser + 4 + fid->filename_size , intToString(fid->file_size));
+        strcpy(ser + 8 + fid->filename_size , shortToString(fid->block_size));
+        strcpy(ser + 10 + fid->filename_size , fid->data);
+        return ser;
+      }
+      case 3: {
+        Data* d = (Data*) p;
+        payload = DATA_CONST + d->block_size;
+        ser = malloc(payload);
+        ser[0] = d->type;
+        strcpy(ser + 1 , shortToString(d->sequence_number));
+        strcpy(ser + 3 , shortToString(d->block_size));
+        strcpy(ser + 5 , d->data);
+        return ser;
+      }
+      case 4 : {
+        FNF* fnf = (FNF*) p;
+        payload = FNF_CONST + fnf->filename_size;
+        ser = malloc(payload);
+        ser[0] = fnf->type;
+        ser[1] = fnf->filename_size;
+        strcpy(ser + 2 , fnf->filename);
+        return ser;
+      }
+      default: {
+        printf("Undefined Switch case \n");
+        exit(1);
+      }
+    }
+    return NULL;
+  }
+  void* deserialize(char* data) { 
 
     switch(data[0]) {
-      case 0:
-      {
-        File_request* fr = malloc(sizeof(File_request));
+      case 0 : {
+        FR* fr = malloc(sizeof(FR));
         fr->type = parseByte(data);
         fr->filename_size = parseByte(data + 1);
         fr->filename = data + 2;
         return (void*) fr;
       }
-        default :
-        {
-        printf("Undefined\n"); 
-        return NULL;
-        }
+      case 1 : {
+        ACK* a = malloc(sizeof(ACK));
+        a->type = parseByte(data);
+        a->num_sequences = parseByte(data + 1);
+        a->sequence_no = malloc(2 * a->num_sequences);
+        int i;
+        for(i=0;i<(a->num_sequences);i++)
+          a->sequence_number[i] = parseShort(data + 2 + (2*i));
+        return (void*)a;
+      }
+      case 2 : {
+        FID* fid = malloc(sizeof(FID));
+        fid->type = parseByte(data);
+        fid->sequence_number = parseShort(data + 1);
+        fid->filename_size = parseByte(data + 3);
+        fid->filename = data + 4;
+        fid->file_size = parseInt(data + 4 + fid->filename_size);
+        fid->block_size = parseShort(data + 8 + fid->filename_size);
+        fid->data = data + 10 + fid->filename_size;
+        return (void*) fid;
+      }
+      case 3 : {
+        Data* d = malloc(sizeof(Data));
+        d->type = parseByte(data);
+        d->sequence_number = parseShort(data + 1);
+        d->block_size = parseShort(data + 3);
+        d->data = data + 5;
+        return (void*)d;
+      }
+      case 4 : {
+        FNF* fnf = malloc(sizeof(FNF));
+        fnf->type = parseByte(data);
+        fnf->filename_size = parseByte(data + 1);
+        fnf->filename = data + 2;
+        return (void*)fnf;
+      }
+      default : {
+        printf("Undefined Switch case\n"); 
+        exit(1);
+      }
     }
     return NULL;
-}
+  }
+
+  void writeToFile(FILE* fptr , char* buffer , int len) {
+    int i;
+    for(i=0;i<len;i++)
+      fputc(buffer[i] , fptr);
+
+    fflush(fptr);
+  }
 
   int main(int argc, char * argv[]){
 
@@ -167,74 +271,78 @@ void* deserialize(char* data) { //TODO : Implement deserialization for all types
 
 
 
-  /* send message to server */                                                                                                                                                                                                                                                                                                                    
+  /* send message to server */        
+    int udp_buf = 50000;                                                                                                                                                                                                                                                                                                            
     fgets(buf, sizeof(buf), stdin);
     buf[BUF_SIZE-1] = '\0';
     len = strlen(buf) + 1;
-    send(s, buf, len, 0);
-
-  /* get reply, display it or store in a file*/ 
-  /* Add code to receive unlimited data and either display the data
-     or if specified by the user, store it in the specified file. */
-  /*
-  struct sockaddr_storage server_addr;
-  socklen_t client_addr_len;
-    client_addr_len = sizeof(client_addr);
-    */
-    char * FILE_NAME = "a.txt";
-  //FILE* fptr = fopen(FILE_NAME , "wb");
-    int size = 100;
-    /*char * buffer = (char*) malloc(size);*/
-    
+    FR* fr = malloc(sizeof(FR));
+    fr->type = 0;
+    fr->filename_size = len;
+    fr->filename = buf;
+    send(s, serialize(fr) , payload , 0);	
     int total = 0;
-    int flag = 0;
-    struct timeval start , end;
-    gettimeofday(&start , NULL); 
-  // while(1){  	
-    char buffer[size];
-    memset(buffer, 0, size);   
-    int length = recv(s , buffer , size , 0);
-    printf("sizeof buffer %d\n" , sizeof(buffer)); 
-    FR* fr = (FR*) deserialize(buffer);
-    printf("Recv len = %d \n", length);
-    printf("Type = %d \n", fr->type);
-    printf("filename_size = %d \n", fr->filename_size);
-    // printf("from buffer %c %c %c \n", buffer[2] , buffer[3] , buffer[4]);
-    char filename[fr->filename_size];
-    strcpy(filename , fr->filename);
-    printf("str size = %d\n", strlen(filename));
-    printf("File name = %s \n", filename);
+    char buffer[udp_buf];
+    int curr = -1;
+    FILE* fptr = NULL;
+    while(1){    
+      memset(buffer, 0, udp_buf);   
+      int length = recv(s , buffer , udp_buf , 0);        
+      printf("Recv len = %d \n", length);     
+      if(length == 4 && (strcmp(buffer , "BYE") == 0) ){
+        printf("Bye recieved\n");
+        if(fptr) {
+          fflush(fptr);
+          fclose(fptr);
+          printf("COPIED %d \n" , total);
+        }
+        else {
+          printf("FNF \n");
+        }
+        fflush(stdout);
+        return 0;
+      }                   
+      else if(buffer[0] == 4) {
+        printf("File not found in server \n");      
+      }
+      else {
+        int toACK = -1;
+        if(curr == -1) {
+          FID* fid = (FID*) deserialize(buffer);
+          fptr = fopen(fid->filename , "wb");        
+          if(fid->sequence_number == curr + 1) {
+            curr++;
+            total += fid->block_size;
+            writeToFile(fptr , fid->data , fid->block_size);    
+            toACK = curr;      
+          }
+          else if(fid->sequence_number <= curr) {
+            toACK = fid->sequence_number;
+          }
+        }
+        else {
+          Data* d = (Data*) deserialize(buffer);
+          if(d->sequence_number == curr + 1) {
+            curr++;
+            total += d->block_size;
+            writeToFile(fptr , d->data , d->block_size);
+            toACK = curr;
+          }
+          else if(d->sequence_number <= curr) {
+            toACK = d->sequence_number;       
+          }
+        }
 
+        if(toACK >= 0) {
+          ACK* a = malloc(sizeof(ACK));
+          a->type = 1;
+          a->num_sequences = 1;
+          a->sequence_no = &toACK;
+          char* ser = serialize(a);
+          send(s, ser , payload , 0);
+        }
 
-    total += length;
-
-    // printf("Inside while recv len %d \n" , length);
-    // fflush(stdout);
-	//fputs(buffer , stdout);
-	//fclose(stdout);
-  /*	if(length == 4 && (strcmp(buffer , "BYE") == 0) ){
-	  	total -= 4;
-     	// fflush(fptr);
-	  	// fclose(fptr);
-  		// printf("COPIED %d \n" , total);
-		gettimeofday(&end , NULL);
-		long long time = ((end.tv_sec - start.tv_sec) * 1000000LL) + (end.tv_usec - start.tv_usec);
-		// printf("Time : %.8fs \n" , ((double)time/(1000000.0)));
-		// printf("Data rate = %.2f KB/s \n " , (double)( (total * 1000.0) / time ));
-		fflush(stdout);
-  		exit(0);
-  	}
-  	int i;
-
-  	for(i = 0;i < length;i++)
-  		fputc(buffer[i] , stdout);
-    
-    fflush(stdout);
-    
-    */
-    
-
-
-  // fputs(buf, stdout);
+      }
+    }
 
   }

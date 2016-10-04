@@ -1,5 +1,5 @@
 /* CSD 304 Computer Networks, Fall 2016
-   Lab 2, server
+   Lab 3, server
    Team: Aditya , Akhil, Bhishmaraj, Kishore 
 */
 

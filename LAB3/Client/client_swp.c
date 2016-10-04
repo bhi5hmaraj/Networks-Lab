@@ -1,5 +1,5 @@
 /* CSD 304 Computer Networks, Fall 2016
-   Lab 2, client
+   Lab 3, client
    Team: 
 */
 

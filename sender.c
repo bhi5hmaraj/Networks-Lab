@@ -12,93 +12,174 @@
 #include <netdb.h>
 #include <dirent.h>
 
-#define MC_PORT 5433
+#define MC_PORT 5436
 #define TCP_PORT 5453
 #define BUF_SIZE 40000
 #define MAX_PENDING 10
 #define STATION_CONST 14
 
-   uint8_t parseByte(char* data) {
-     uint8_t bite = data[0];
-     return bite;
-   }
-   uint16_t parseShort(char* data) {
-     uint16_t shot = 0;    
-     shot |= ((uint8_t)(data[0]));
-     shot <<= 8;    
-     shot |= ((uint8_t)(data[1]));            
-     return shot;
-   }
-   
-   uint32_t parseInt(char* data) {
-     uint32_t Int = 0;
-     Int |= ((uint8_t)data[0]);
-     Int <<= 8;
-     Int |= ((uint8_t)data[1]);
-     Int <<= 8;
-     Int |= ((uint8_t)data[2]);
-     Int <<= 8;
-     Int |= ((uint8_t)data[3]);
-     return Int;
-   }
-   char* shortToString(uint16_t num) {
-     uint16_t mask = 0xFF;
-     char* str = malloc(2);
-     str[0] = (num >> 8) & mask;
-     str[1] = num & mask;
-     fflush(stdout);
-     return str; 
-   }
-   char* intToString(uint32_t num) {
-     uint32_t mask = 0xFF;
-     char* str = malloc(4);
-     str[0] = (num >> 24) & mask;
-     str[1] = (num >> 16) & mask;
-     str[2] = (num >> 8) & mask;
-     str[3] = num & mask;
-     return str; 
+   char* intToIPAddress(uint32_t IP) {
+    uint8_t* ptr = (uint8_t*) &IP;
+    char* str = malloc(36); // 32 + 3 + 1
+    sprintf(str , "%u.%u.%u.%u" ,  *(ptr + 3), *(ptr + 2) , *(ptr + 1) ,*ptr );
+    str[35] = '\0';
+    return str;
+  }
+  uint8_t parseByte(char* data) {
+   uint8_t bite = data[0];
+   return bite;
+ }
+ uint16_t parseShort(char* data) {
+   uint16_t shot = 0;    
+   shot |= ((uint8_t)(data[0]));
+   shot <<= 8;    
+   shot |= ((uint8_t)(data[1]));            
+   return shot;
+ }
+
+ uint32_t parseInt(char* data) {
+   uint32_t Int = 0;
+   Int |= ((uint8_t)data[0]);
+   Int <<= 8;
+   Int |= ((uint8_t)data[1]);
+   Int <<= 8;
+   Int |= ((uint8_t)data[2]);
+   Int <<= 8;
+   Int |= ((uint8_t)data[3]);
+   return Int;
+ }
+ char* shortToString(uint16_t num) {
+   uint16_t mask = 0xFF;
+   char* str = malloc(2);
+   str[0] = (num >> 8) & mask;
+   str[1] = num & mask;
+   fflush(stdout);
+   return str; 
+ }
+ char* intToString(uint32_t num) {
+   uint32_t mask = 0xFF;
+   char* str = malloc(4);
+   str[0] = (num >> 24) & mask;
+   str[1] = (num >> 16) & mask;
+   str[2] = (num >> 8) & mask;
+   str[3] = num & mask;
+   return str; 
+ }
+
+ typedef struct {
+  uint8_t  station_number;
+  uint8_t  station_name_size;
+  char*    station_name;
+  uint32_t multicast_address;
+  uint16_t data_port;
+  uint16_t info_port;
+  uint32_t bit_rate;
+}station_info;
+
+typedef struct {
+ uint8_t type;
+ uint8_t site_name_size;
+ char*   site_name;
+ uint8_t site_desc_size;
+ char*   site_desc;
+ uint8_t station_count;
+ station_info** station_list;
+}site_info;
+
+site_info* deserialize(char* ser) {
+
+    // printf("Inside deserialize\n");
+  
+ site_info* si = malloc(sizeof(site_info));
+ si->type = *(ser++);
+   // printf("type = %d \n", si->type);
+ si->site_name_size = *(ser++);
+   //printf("site name size = %d \n", si->site_name_size);
+ si->site_name = ser; ser += si->site_name_size;
+   //printf("site name = %s\n", si->site_name);
+ si->site_desc_size = *(ser++);
+   //printf("site desc size = %d\n", si->site_desc_size);
+ si->site_desc = ser; ser += si->site_desc_size;
+   //printf("site desc = %s\n", si->site_desc);
+ si->station_count = *(ser++);
+   //printf("Station cnt = %d\n", si->station_count);
+   //fflush(stdout);
+ int len = si->station_count;
+ int i;
+ si->station_list = (station_info**) malloc(sizeof(station_info*) * len);
+ for(i=0;i<len;i++) {
+     // char * start = ser;
+     //printf("seg fault at %d \n", *ser);
+   si->station_list[i] = (station_info*) malloc(sizeof(station_info));
+   (si->station_list[i])->station_number = *(ser++);
+   (si->station_list[i])->station_name_size = *(ser++);
+   (si->station_list[i])->station_name = ser; ser += (si->station_list[i])->station_name_size;
+   (si->station_list[i])->multicast_address = parseInt(ser); ser += 4;
+   (si->station_list[i])->data_port = parseShort(ser); ser += 2;
+   (si->station_list[i])->info_port = parseShort(ser); ser += 2;
+   (si->station_list[i])->bit_rate  = parseInt(ser); ser += 4; 
+/*     while(start != ser) {
+         printf("%d ", *start);
+         start++;
+       }
+       printf("\n");*/
+     }
+
+     return si;
    }
 
-   typedef struct {
-    uint8_t  station_number;
-    uint8_t  station_name_size;
-    char*    station_name;
-    uint32_t multicast_address;
-    uint16_t data_port;
-    uint16_t info_port;
-    uint32_t bit_rate;
-  }station_info;
+   int totalSize;
 
-  typedef struct {
-   uint8_t type;
-   uint8_t site_name_size;
-   char*   site_name;
-   uint8_t site_desc_size;
-   char*   site_desc;
-   uint8_t station_count;
-   station_info** station_list;
- }site_info;
-
- char* serializeSiteInfo(site_info* si ) {
-  char* ser;
+   char* serializeSiteInfo(site_info* si ) {
+    char* ser;
       // int stationConst = 1 + 1 + 4 + 2 + 2 + 4;
-  int totalSize = 1 + 1 + si->site_name_size + 1 + si->site_desc_size + 1;
-  printf("totalSize = %d\n", totalSize);
-  int i , len = (si->station_count);
-  for(i = 0;i < len;i++) 
-    totalSize += (STATION_CONST + (si->station_list[i])->station_name_size);
+    totalSize = 1 + 1 + si->site_name_size + 1 + si->site_desc_size + 1;
+ //  printf("totalSize = %d\n", totalSize);
+    int i , len = (si->station_count);
+    for(i = 0;i < len;i++) 
+      totalSize += (STATION_CONST + (si->station_list[i])->station_name_size);
 
-  ser = malloc(totalSize);
-  char * ans = ser;
-  *(ser++) = si->type;
-  *(ser++) = si->site_name_size;
-  memcpy(ser , si->site_name , si->site_name_size);
-  ser += si->site_name_size;
-  memcpy(ser , si->site_desc , si->site_desc_size);
-  ser += si->site_desc_size;
-  *(ser++) = si->station_count;
+    ser = malloc(totalSize);
+    if(ser == NULL) {
+      printf("Not enough memory \n");
+      exit(1);
+    }
+    char * ans = ser;
+    char * start = ser;
+    *(ser++) = si->type;
+    *(ser++) = si->site_name_size;
+    memcpy(ser , si->site_name , si->site_name_size);
+    // printf("site name inside serialization = %s site name size = %d \n", ser , si->site_name_size);
+    ser += si->site_name_size;
+    *(ser++) = si->site_desc_size;
+    memcpy(ser , si->site_desc , si->site_desc_size);
+    // printf("site desc inside serialization = %s site desc size = %d \n", ser , si->site_desc_size);
+    ser += si->site_desc_size;
 
+    *(ser++) = si->station_count;
+
+  /*while(start != ser) {
+    printf("%d ", *start);
+    start++;
+  }
+  printf("\n");
+  fflush(stdout);
+  if(si->station_count != 2) {
+    printf("Invalid station count inside serialization\n");
+    exit(1);
+  }
+  else
+    printf("Correct station count in serialization\n");
+  */
   for(i = 0;i < len;i++) {
+    /*printf("Station Number : %d\n", (si->station_list[i])->station_number);
+    printf("Station Name : %s size = %d \n", (si->station_list[i])->station_name , (si->station_list[i])->station_name_size);
+    printf("Multicast Address : %s\n", intToIPAddress((si->station_list[i])->multicast_address));
+    printf("Data Port : %d\n", (si->station_list[i])->data_port);
+    printf("Info Port : %d\n", (si->station_list[i])->info_port);
+    printf("Bit Rate : %d\n", (si->station_list[i])->bit_rate);
+    fflush(stdout);
+    char* start = ser;*/
     *(ser++) = (si->station_list[i])->station_number;
     *(ser++) = (si->station_list[i])->station_name_size;
     memcpy(ser , (si->station_list[i])->station_name , (si->station_list[i])->station_name_size); ser += (si->station_list[i])->station_name_size;
@@ -106,8 +187,13 @@
     memcpy(ser , shortToString((si->station_list[i])->data_port) , 2); ser += 2;
     memcpy(ser , shortToString((si->station_list[i])->info_port) , 2); ser += 2;
     memcpy(ser , intToString((si->station_list[i])->bit_rate) , 4); ser += 4;
+/*    while(start != ser) {
+      printf("%d ", *start);
+      start++;
+    }
+    printf("\n");*/
   }
-  return ser;
+  return ans;
 }
 
 uint32_t IPAddressToInt(char* str) {
@@ -142,13 +228,13 @@ station_info* createStation(uint8_t station_number , char* station_name ,uint32_
 
 int main(int argc, char * argv[]){
     /* Multicast specific */
-    char *mcast_addr; /* multicast address */
+  char *mcast_addr; /* multicast address */
   mcast_addr = "230.192.1.10\0";
   site_info* si = (site_info*) malloc(sizeof(site_info));
   si->type = 10;
-  si->site_name = "SNU Internet Radio\0";
+  si->site_name = "SNURadio\0";
   si->site_name_size = strlen(si->site_name) + 1;
-  si->site_desc = "This is a holder for the site Description\0";
+  si->site_desc = "Description\0";
   si->site_desc_size = strlen(si->site_desc) + 1;
 
   si->station_count = 2;
@@ -194,7 +280,8 @@ int main(int argc, char * argv[]){
       DIR *directory;
       struct dirent* file;
       FILE * fptr;
-      char* path = malloc(100);
+      char path[100];
+      char file_path[100];
       memset(path , 0 , 100);
       sprintf(path , "./%s/" , (si->station_list[i])->station_name);
       directory = opendir(path);
@@ -203,36 +290,38 @@ int main(int argc, char * argv[]){
         exit(1);
       }
       else {
-        char* file_path = malloc(100);
         while ((file=readdir(directory)) != NULL) {
-          memset(file_path , 0 ,100);
-          strcpy(file_path , path);
-          strcat(file_path , file->d_name);
-          fptr = fopen(file_path , "rb");
-          if(fptr != NULL)
-            printf("File = %s opened sucessfully\n" , file_path);
-          else {
-            printf("File not opened\n");
-            exit(1);
-          }
-          fflush(stdout);
-
-          fseek(fptr, 0, SEEK_END);
-          int length = ftell(fptr);
-          fseek(fptr, 0, SEEK_SET);
-          int remain = length;
-          int packet = 1;
-          while(remain > 0) {
-            memset(buf, 0, BUF_SIZE);   
-            int to = BUF_SIZE < remain ? BUF_SIZE : remain;
-            fread(buf , 1 , to , fptr);
-            remain -= to;
-            sendto(s, buf, BUF_SIZE, 0,(struct sockaddr *)&sin, sizeof(sin));
-            printf("Sent Packet = %d\n", (packet++));
+          printf("d_name = %s\n", file->d_name);
+          if(file->d_name[0] != '.') {
+            memset(file_path , 0 ,100);
+            strcpy(file_path , path);
+            strcat(file_path , file->d_name);
+            fptr = fopen(file_path , "rb");
+            if(fptr != NULL)
+              printf("File = %s opened sucessfully\n" , file_path);
+            else {
+              printf("File not opened\n");
+              fflush(stdout);
+              exit(1);
+            }
             fflush(stdout);
-            usleep(100000);
+
+            fseek(fptr, 0, SEEK_END);
+            int length = ftell(fptr);
+            fseek(fptr, 0, SEEK_SET);
+            int remain = length;
+            int packet = 1;
+            while(remain > 0) {
+              memset(buf, 0, BUF_SIZE);   
+              int to = BUF_SIZE < remain ? BUF_SIZE : remain;
+              fread(buf , 1 , to , fptr);
+              remain -= to;
+              sendto(s, buf, to, 0,(struct sockaddr *)&sin, sizeof(sin));
+              usleep(100000);
+            }
+            printf("File = %s streamed sucessfully \n", file_path);
+            fclose(fptr);
           }
-          fclose(fptr);
         }
         closedir(directory);
 
@@ -245,7 +334,7 @@ int main(int argc, char * argv[]){
 
   struct sockaddr_in sin;
   /*char buf[MAX_LINE];*/
-  int len;
+  int store;
   int s, new_s;
   char str[INET_ADDRSTRLEN];
 
@@ -271,19 +360,39 @@ int main(int argc, char * argv[]){
 
   listen(s, MAX_PENDING);
   /* wait for connection, then receive and print text */
+  char* payload = serializeSiteInfo(si);
+  si = deserialize(payload);
+  printf("After deserialize \n");
+  int station_len = si->station_count;
+  printf("site desc = %s\n", si->site_desc);
+  printf("site name = %s\n", si->site_name);
+  printf("Station cnt = %d\n", si->station_count);
+  printf("Num of stations = %d \n", station_len);
+  fflush(stdout);
+  for(i=0;i<station_len;i++) {
+    printf("Station Number : %d\n", (si->station_list[i])->station_number);
+    printf("Station Name : %s\n", (si->station_list[i])->station_name);
+    printf("Multicast Address : %s\n", intToIPAddress((si->station_list[i])->multicast_address));
+    printf("Data Port : %d\n", (si->station_list[i])->data_port);
+    printf("Info Port : %d\n", (si->station_list[i])->info_port);
+    printf("Bit Rate : %d\n", (si->station_list[i])->bit_rate);
+    fflush(stdout);
+  }
+  printf("Size of payload = %d \n", totalSize);
+
   while(1) {
 
-    if ((new_s = accept(s, (struct sockaddr *)&sin, &len)) < 0) {
+    if ((new_s = accept(s, (struct sockaddr *)&sin, &store)) < 0) {
       perror("simplex-talk: accept");
       exit(1);
     }
     printf("Server Listening.\n");
 
-    char * message = malloc(200);
-    int bitrate = 320; // TODO : automatically find bitrate
-    sprintf(message , "Hello\nSite Name : SNU Internet Radio\nSite Description : NULL\nStation Count : 1\nStation Number : 1\nStation Name : Hello FM\nMulticast address : %s\nMulticast UDP Port : %d\nInfo Port : %d\nBitrate :%d\n ", mcast_addr , MC_PORT , 0 , bitrate);
-    send(new_s,message,strlen(message),0);
-
+    //char * message = malloc(200);
+    //int bitrate = 320; // TODO : automatically find bitrate
+    //sprintf(message , "Hello\nSite Name : SNU Internet Radio\nSite Description : NULL\nStation Count : 1\nStation Number : 1\nStation Name : Hello FM\nMulticast address : %s\nMulticast UDP Port : %d\nInfo Port : %d\nBitrate :%d\n ", mcast_addr , MC_PORT , 0 , bitrate);
+    //send(new_s,message,strlen(message),0);
+    send(new_s , payload , totalSize , 0);
   }
   return 0;
 }

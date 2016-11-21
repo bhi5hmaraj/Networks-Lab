@@ -224,7 +224,7 @@ int main(int argc, char * argv[]){
 
       struct sockaddr_in sin2; /* socket struct */
       //char *if_name = "wlan0"; /* name of interface */
-    char *if_name = "eth0";
+    char *if_name = "wlan0";  
       struct ifreq ifr; /* interface struct */
       struct ip_mreq mcast_req;  /* multicast join struct */
       //char *mcast_addr = "230.192.1.10\0"; /* multicast address */   

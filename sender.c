@@ -14,9 +14,11 @@
 
 #define MC_PORT 5253
 #define TCP_PORT 5451
-#define BUF_SIZE 5000
+#define BUF_SIZE 25000
 #define MAX_PENDING 10
 #define STATION_CONST 14
+
+// double speed = ((BUF_SIZE * (8.0 / 1000.0)) / (SLEEP / 1000000.0)); // in kbps (kilo bits per sec)
 
    char* intToIPAddress(uint32_t IP) {
     uint8_t* ptr = (uint8_t*) &IP;
@@ -88,7 +90,7 @@ typedef struct {
 
 site_info* deserialize(char* ser) {
 
-  
+
  site_info* si = malloc(sizeof(site_info));
  si->type = *(ser++);
  si->site_name_size = *(ser++);
@@ -161,8 +163,8 @@ uint32_t IPAddressToInt(char* str) {
     if(i < 3)
       ans <<= 8;
   }
-  printf("Input address = %s converted address = %u \n", str , ans);
-  fflush(stdout);
+  //printf("Input address = %s converted address = %u \n", str , ans);
+  //fflush(stdout);
   return ans;
 }
 
@@ -187,12 +189,12 @@ int main(int argc, char * argv[]){
   mcast_addr = "230.192.1.10\0";
   site_info* si = (site_info*) malloc(sizeof(site_info));
   si->type = 10;
-  si->site_name = "SNURadio\0";
+  si->site_name = "SNU Radio\0";
   si->site_name_size = strlen(si->site_name) + 1;
   si->site_desc = "Description\0";
   si->site_desc_size = strlen(si->site_desc) + 1;
 
-  si->station_count = 2;
+  si->station_count = 4;
   si->station_list = (station_info**) malloc(sizeof(station_info*) * si->station_count);    
   si->station_list[0] = createStation(
     0,
@@ -200,7 +202,7 @@ int main(int argc, char * argv[]){
     IPAddressToInt(mcast_addr),
     MC_PORT,
         0 /* TODO */ ,
-        320 /* TODO */
+        2900 /* TODO */
     );
 
   si->station_list[1] = createStation(
@@ -209,15 +211,37 @@ int main(int argc, char * argv[]){
     IPAddressToInt(mcast_addr),
     MC_PORT + 1,
       0 /* TODO */ ,
-      320 /* TODO */
+      360 /* TODO */
     );
-
+  si->station_list[2] = createStation (
+    2,
+    "Camera\0",
+    IPAddressToInt(mcast_addr),
+    MC_PORT + 2,
+    0,
+    260
+    );
+  si->station_list[3] = createStation (
+    3,
+    "Internet_Radio\0",
+    IPAddressToInt(mcast_addr),
+    MC_PORT + 3,
+    0,
+    400 // 430 for Illayaraja
+    );
   int i , len = si->station_count;
+
   for(i=0;i<len;i++) {
 
     if(fork() == 0) {
-      printf("PID %d , tcp = %d udp = %d \n", getpid() , TCP_PORT , (si->station_list[i])->data_port );
-      printf("Station = %s created at %s:%d\n", (si->station_list[i])->station_name , mcast_addr , (si->station_list[i])->data_port);
+      // printf("PID %d , tcp = %d udp = %d \n", getpid() , TCP_PORT , (si->station_list[i])->data_port );      
+      int bitRate = (si->station_list[i])->bit_rate; // kbps
+      double bufSize = (BUF_SIZE * 8.0) / 1000.0;
+      double sleepRequired = (bufSize / (double) bitRate) * 1000000.0;
+      int sleep = ((int)sleepRequired);
+      double speed = ((BUF_SIZE * (8.0 / 1000.0)) / (sleep / 1000000.0)); // in kbps (kilo bits per sec)
+
+      printf("Station = %s created at %s:%d sleepRequired = %lf Bit Rate of song = %d , Bit Rate of Transmission = %lf \n", (si->station_list[i])->station_name , mcast_addr , (si->station_list[i])->data_port , sleepRequired, bitRate , speed);
       fflush(stdout);
       int s; /* socket descriptor */
       struct sockaddr_in sin; /* socket struct */
@@ -232,58 +256,120 @@ int main(int argc, char * argv[]){
       sin.sin_family = AF_INET;
       sin.sin_addr.s_addr = inet_addr(mcast_addr);
       sin.sin_port = htons((si->station_list[i])->data_port);
-      DIR *directory;
-      struct dirent* file;
-      FILE * fptr;
-      char path[100];
-      char file_path[100];
-      memset(path , 0 , 100);
-      sprintf(path , "./%s/" , (si->station_list[i])->station_name);
-      directory = opendir(path);
-      if(directory == NULL) {
-        printf("Error in directory creation \n");
-        exit(1);
+
+      if(strcmp((si->station_list[i])->station_name , "Internet_Radio") == 0) {
+
+        system("rm -f ./Internet_Radio/pipe;mkfifo ./Internet_Radio/pipe");
+        if(fork() == 0) {
+          // Suryan http://104.238.193.114:7077/;stream.mp3
+          // Illayaraja http://66.55.145.43:7446/;
+          system("ffmpeg -i 'http://prc.streamguys1.com/secure-radiocity-tamil-tunein' -f mpegts -loglevel quiet -y ./Internet_Radio/pipe");
+          return 0;
+        }        
+
+        FILE* fptr = fopen("./Internet_Radio/pipe" , "rb");
+        if(fptr == NULL) {
+          printf("Pipe not opened\n");
+          fflush(stdout);
+          exit(1);
+        }
+        else {
+          printf("Pipe opened\n");
+          fflush(stdout);
+        }
+
+        while(1) {
+          memset(buf, 0, BUF_SIZE);   
+          fread(buf , 1 , BUF_SIZE , fptr);
+          sendto(s, buf, BUF_SIZE, 0,(struct sockaddr *)&sin, sizeof(sin));
+          usleep(sleep);
+        }
+
+      }
+      else if(strcmp((si->station_list[i])->station_name , "Camera") == 0) {
+
+        system("rm -f ./Camera/pipe;mkfifo ./Camera/pipe");
+        if(fork() == 0) {
+          system("ffmpeg -f v4l2 -framerate 25 -video_size 480x480 -i /dev/video0 -loglevel quiet -f mpegts -y ./Camera/pipe");
+          return 0;
+        }        
+
+        FILE* fptr = fopen("./Camera/pipe" , "rb");
+        if(fptr == NULL) {
+          printf("Pipe not opened\n");
+          fflush(stdout);
+          exit(1);
+        }
+        else {
+          printf("Pipe opened\n");
+          fflush(stdout);
+        }
+
+        while(1) {
+          memset(buf, 0, BUF_SIZE);   
+          fread(buf , 1 , BUF_SIZE , fptr);
+          sendto(s, buf, BUF_SIZE, 0,(struct sockaddr *)&sin, sizeof(sin));
+          usleep(sleep);
+        }
+
       }
       else {
-        while ((file=readdir(directory)) != NULL) {
-          printf("d_name = %s\n", file->d_name);
-          if(file->d_name[0] != '.') {
-            memset(file_path , 0 ,100);
-            strcpy(file_path , path);
-            strcat(file_path , file->d_name);
-            fptr = fopen(file_path , "rb");
-            if(fptr != NULL)
-              printf("File = %s opened sucessfully\n" , file_path);
-            else {
-              printf("File not opened\n");
-              fflush(stdout);
-              exit(1);
-            }
-            fflush(stdout);
 
-            fseek(fptr, 0, SEEK_END);
-            int length = ftell(fptr);
-            fseek(fptr, 0, SEEK_SET);
-            //int length = 10000000;
-            int remain = length;
-            int packet = 1;
-            while(remain > 0) {
-              memset(buf, 0, BUF_SIZE);   
-              int to = BUF_SIZE < remain ? BUF_SIZE : remain;
-              fread(buf , 1 , to , fptr);
-              remain -= to;
-              sendto(s, buf, to, 0,(struct sockaddr *)&sin, sizeof(sin));
-              usleep(100000);
-            }
-            printf("File = %s streamed sucessfully \n", file_path);
-            fclose(fptr);
-          }
+        DIR *directory;
+        struct dirent* file;
+        FILE * fptr;
+        char path[100];
+        char file_path[100];
+        memset(path , 0 , 100);
+        sprintf(path , "./%s/" , (si->station_list[i])->station_name);
+        directory = opendir(path);
+        if(directory == NULL) {
+          printf("Error in directory creation \n");
+          exit(1);
         }
-        closedir(directory);
+        else {
+          while ((file=readdir(directory)) != NULL) {
+          //printf("d_name = %s\n", file->d_name);
+            if(file->d_name[0] != '.') {
+              memset(file_path , 0 ,100);
+              strcpy(file_path , path);
+              strcat(file_path , file->d_name);
+              fptr = fopen(file_path , "rb");
+              if(fptr != NULL)
+                printf("File = %s opened sucessfully\n" , file_path);
+              else {
+                printf("File not opened\n");
+                fflush(stdout);
+                exit(1);
+              }
+              fflush(stdout);
+
+              fseek(fptr, 0, SEEK_END);
+              int length = ftell(fptr);
+              fseek(fptr, 0, SEEK_SET);
+              int remain = length;
+              int packet = 1;
+              while(remain > 0) {
+                memset(buf, 0, BUF_SIZE);   
+                int to = BUF_SIZE < remain ? BUF_SIZE : remain;
+                fread(buf , 1 , to , fptr);
+                remain -= to;
+                sendto(s, buf, to, 0,(struct sockaddr *)&sin, sizeof(sin));
+                usleep(sleep);
+              }
+              printf("File = %s streamed sucessfully \n", file_path);
+              fclose(fptr);
+            }
+          }
+
+          closedir(directory);
+
+        }
+        close(s);
+        return 0;    
 
       }
-      close(s);
-      return 0;    
+
     }
 
   }
@@ -344,6 +430,6 @@ int main(int argc, char * argv[]){
     printf("Server Connected to Client \n");
     send(new_s , payload , totalSize , 0);
   }
-
+  close(s); // added new 
   return 0;
 }
